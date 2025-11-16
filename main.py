@@ -2,8 +2,8 @@ import os
 import sys
 import random
 import threading
-import keyboard
 import time
+from pynput import keyboard
 
 # Zenoh configuration and BeamNG paths setup
 # !!!
@@ -74,11 +74,9 @@ def main():
   print('======== Lidar sensors ========')
   lidars = [LidarManager(bng, ego_vehicle, ego_vehicle_data, config, zenoh_config_path) for config in sensors_config['lidars']]
 
-  # Stop event and keyboard listener
+  # Stop event
   stop_event = threading.Event()
-  stop_thread = threading.Thread(target=lambda: keyboard.wait('q') or stop_event.set())
-  stop_thread.start()
-  
+
   # Vehicle data thread
   get_vehicle_data_thread = threading.Thread(target=ego_vehicle_data.update_data, args=(stop_event, 10))
   get_vehicle_data_thread.start()
@@ -95,11 +93,25 @@ def main():
   for sensor_manager in cameras + clocks + gps + imus + lidars:
     sensor_threads.append(create_sensor_thread(sensor_manager, stop_event))
 
-  # Start manual control toggle thread
-  keyboard.on_press_key('s', lambda _: ego_vehicle_data.set_manual_mode(not ego_vehicle_data.get_manual_mode()))
+  # Key listener (pynput) — 's' を押すと manual toggle, 'q' を押すと終了
+  def on_press(key):
+    try:
+      if key.char == 's':
+        ego_vehicle_data.set_manual_mode(not ego_vehicle_data.get_manual_mode())
+      elif key.char == 'q':
+        stop_event.set()
+    except AttributeError:
+      # 特殊キー（例: Key.shift）などは無視
+      pass
 
-  # Wait for the stop signal and join threads
-  stop_thread.join()
+  listener = keyboard.Listener(on_press=on_press)
+  listener.start()
+
+  # メインは stop_event が立つまで待機
+  stop_event.wait()
+
+  # 終了処理
+  listener.stop()
   get_vehicle_data_thread.join()
   ego_vehicle_interface.stop_communication()
   for thread in sensor_threads:
