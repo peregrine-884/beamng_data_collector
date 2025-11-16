@@ -27,12 +27,37 @@ class CameraManager:
     )
     self.frequency = camera_config['frequency']
     self.frame_id = camera_config['frame_id']
-    
-    self.publisher = CameraDataPublisher(zenoh_config, camera_config['topic_name'])
-    
     self.width = camera_config['resolution'][0]
     self.height = camera_config['resolution'][1]
+
+    # どのデータを取得するか設定
+    self.enable_color = camera_config['is_render_colours']
+    self.enable_depth = camera_config['is_render_depth']
+    self.enable_annotation = camera_config['is_render_annotations']
     
+    # 有効なデータ型のみPublisherを作成
+    self.color_publisher = None
+    self.depth_publisher = None
+    self.annotation_publisher = None
+    
+    if self.enable_color:
+      self.color_publisher = CameraDataPublisher(
+        zenoh_config, 
+        camera_config['topic_name'] + '/color'
+      )
+    
+    if self.enable_depth:
+      self.depth_publisher = CameraDataPublisher(
+        zenoh_config, 
+        camera_config['topic_name'] + '/depth'
+      )
+    
+    if self.enable_annotation:
+      self.annotation_publisher = CameraDataPublisher(
+        zenoh_config, 
+        camera_config['topic_name'] + '/annotation'
+      )
+
     print(f'{camera_config["name"]}: {camera_config["topic_name"]}')
     
   def send(self, stop_event):
@@ -41,8 +66,26 @@ class CameraManager:
     
     while not stop_event.is_set():
       data = self.camera.stream_raw()
-      image_data = data['colour'].tobytes()
+
+      # RGB画像
+      if self.enable_color and self.color_publisher is not None:
+        color_data = data['colour'].tobytes()
+        self.color_publisher.publish_color(
+          self.frame_id, color_data, self.width, self.height
+        )
       
-      self.publisher.publish(self.frame_id, image_data, self.width, self.height)
+      # Depth画像
+      if self.enable_depth and self.depth_publisher is not None:
+        depth_data = data['depth'].tobytes()
+        self.depth_publisher.publish_depth(
+          self.frame_id, depth_data, self.width, self.height
+        )
+      
+      # Annotation画像
+      if self.enable_annotation and self.annotation_publisher is not None:
+        annotation_data = data['annotation'].tobytes()
+        self.annotation_publisher.publish_annotation(
+          self.frame_id, annotation_data, self.width, self.height
+        )
       
       base_time = sleep_until_next(interval, base_time)
